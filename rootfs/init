@@ -59,19 +59,19 @@ function set_tls_crypt () {
 }
 
 
-# save DNS variables to /etc/default/antizapret
-# in order to systemd services can access them
+# eval variables to supervisor
+# also save them to /etc/default/antizapret
 
-cat << EOF | sponge /etc/default/antizapret
-CBC_CIPHERS=${CBC_CIPHERS:-0}
-SCRAMBLE=${SCRAMBLE:-0}
-DNS=$(resolve $DNS)
-DNS_RU=$(resolve $DNS_RU 77.88.8.8)
-ADGUARD=${ADGUARD:-0}
-TLS_CRYPT=${TLS_CRYPT:-0}
-PYTHONUNBUFFERED=1
+eval $(cat << EOF | tee /etc/default/antizapret
+export CBC_CIPHERS=${CBC_CIPHERS:-0}
+export SCRAMBLE=${SCRAMBLE:-0}
+export DNS=$(resolve $DNS)
+export DNS_RU=$(resolve $DNS_RU 77.88.8.8)
+export ADGUARD=${ADGUARD:-0}
+export TLS_CRYPT=${TLS_CRYPT:-0}
+export PYTHONUNBUFFERED=1
 EOF
-
+)
 
 # autoload vars when logging in into shell with 'bash -l'
 ln -sf /etc/default/antizapret /etc/profile.d/antizapret.sh
