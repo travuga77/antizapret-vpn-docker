@@ -43,11 +43,11 @@ create_hash () {
 
 diff_hashes () {
     path=./config/custom
-    if [[ ! -f /root/.hash ]]; then
-        create_hash > /root/.hash
+    if [[ ! -f ./config/custom/.hash ]]; then
+        create_hash > ./config/custom/.hash
         hash_1=
     else
-        hash_1=$(cat /root/.hash)
+        hash_1=$(cat ./config/custom/.hash)
     fi
     hash_2=$(create_hash)
 
@@ -87,7 +87,7 @@ for file in "${FILES[@]}"; do
 done
 
 
-if ! diff_hashes; then create_hash > /root/.hash; STAGE_2=true; fi
+if ! diff_hashes; then create_hash > ./config/custom/.hash; STAGE_2=true; fi
 
 
 [[ $STAGE_1 == true ]] && (echo "run update.sh" && ./update.sh || exit 1)

@@ -5,7 +5,7 @@ HERE="$(dirname "$(readlink -f "${0}")")"
 cd "$HERE"
 
 cp result/knot-aliases-alt.conf /etc/knot-resolver/knot-aliases-alt.conf
-systemctl restart kresd@1.service
+supervisorctl restart kresd
 
 cp result/openvpn-blocked-ranges.txt /etc/openvpn/server/ccd/DEFAULT
 iptables-legacy -F azvpnwhitelist

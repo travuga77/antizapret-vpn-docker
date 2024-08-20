@@ -1,41 +1,110 @@
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS base
+
+ENV APT_LISTCHANGES_FRONTEND=none
+ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /root
 
 RUN <<-"EOT" bash -ex
-    APT_LISTCHANGES_FRONTEND=none
-    DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y \
+        --no-install-suggests \
+        --no-install-recommends \
+            ca-certificates \
+            curl \
+            wget \
+            libnl-genl-3-dev \
+            libssl-dev \
+            libcap-ng-dev \
+            liblz4-dev
+    rm -frv /var/lib/apt/lists/*
+EOT
 
-    apt-get update -q
-    apt-get dist-upgrade -qy
-    apt-get install -qqy --no-install-suggests --no-install-recommends \
-        bsdmainutils \
-        ca-certificates \
-        curl \
-        dnsutils \
-        ferm \
-        gawk \
-        host \
-        idn \
-        inetutils-ping \
-        ipcalc \
-        ipcalc-ng \
-        iptables \
-        iproute2 \
-        knot-resolver \
-        moreutils \
-        nano \
-        openssl \
-        patch \
-        procps \
-        python3-dnslib \
-        sipcalc \
-        systemd-sysv \
-        vim-tiny \
-        wget
-        # git
-        # unattended-upgrades
-    apt-get clean
+
+
+FROM base AS openvpn
+
+WORKDIR /src
+
+RUN <<-"EOT" bash -ex
+    apt-get update
+    apt-get install -y \
+        --no-install-suggests \
+        --no-install-recommends \
+            build-essential \
+            cmake \
+            gcc \
+            git \
+            make \
+            pkg-config
+    rm -frv /var/lib/apt/lists/*
+EOT
+
+RUN <<-"EOT" bash -ex
+    OPENVPN_VER=2.6.12
+    BASE_URL=https://raw.githubusercontent.com/Tunnelblick/Tunnelblick/master/third_party/sources/openvpn/openvpn-$OPENVPN_VER
+
+    wget $BASE_URL/openvpn-$OPENVPN_VER.tar.gz
+
+    tar -f *.tar.gz -zxv --strip-components=1 -C .
+
+    patches=(
+        02-tunnelblick-openvpn_xorpatch-a.diff
+        03-tunnelblick-openvpn_xorpatch-b.diff
+        04-tunnelblick-openvpn_xorpatch-c.diff
+        05-tunnelblick-openvpn_xorpatch-d.diff
+        06-tunnelblick-openvpn_xorpatch-e.diff
+    )
+
+    for patch in ${patches[@]}; do
+        wget $BASE_URL/patches/$patch
+        git apply $patch
+    done
+
+    ./configure \
+        --enable-shared \
+        --enable-static=yes \
+        --disable-dependency-tracking \
+        --disable-debug \
+        --disable-lzo \
+        --disable-plugin-auth-pam
+
+    make -j$(nproc)
+    make install DESTDIR=/dist
+
+    rm -frv *
+EOT
+
+
+
+FROM base AS release
+
+RUN <<-"EOT" bash -ex
+    apt-get update
+    apt-get install -y \
+        --no-install-suggests \
+        --no-install-recommends \
+            bsdmainutils \
+            dnsutils \
+            ferm \
+            gawk \
+            host \
+            idn \
+            inetutils-ping \
+            ipcalc \
+            ipcalc-ng \
+            iptables \
+            iproute2 \
+            knot-resolver \
+            moreutils \
+            nano \
+            openssl \
+            patch \
+            procps \
+            python3-dnslib \
+            sipcalc \
+            supervisor \
+            vim-tiny
     rm -frv /var/lib/apt/lists/*
 EOT
 
@@ -50,69 +119,31 @@ RUN <<-"EOT" bash -ex
     mkdir easyrsa && curl -s -L $EASYRSA_URL | tar -zxv --strip-components=1 -C $_
 EOT
 
-RUN <<-"EOT" bash -ex
-    OPENVPN_VER=2.6.12
-    LIBS="libnl-genl-3-dev libssl-dev libcap-ng-dev liblz4-dev libsystemd-dev"
-    LIBS_TEMP="git build-essential pkg-config gcc cmake make"
-    apt-get install -y $LIBS $LIBS_TEMP
-    mkdir -p /opt/openvpn_install && cd /opt/openvpn_install
-    wget "https://raw.githubusercontent.com/Tunnelblick/Tunnelblick/master/third_party/sources/openvpn/openvpn-$OPENVPN_VER/openvpn-$OPENVPN_VER.tar.gz"
-    tar xvf "openvpn-$OPENVPN_VER.tar.gz"
-    cd "openvpn-$OPENVPN_VER"
-    #
-    patches=(
-        "02-tunnelblick-openvpn_xorpatch-a.diff"
-        "03-tunnelblick-openvpn_xorpatch-b.diff"
-        "04-tunnelblick-openvpn_xorpatch-c.diff"
-        "05-tunnelblick-openvpn_xorpatch-d.diff"
-        "06-tunnelblick-openvpn_xorpatch-e.diff"
-    )
-
-    for patch in "${patches[@]}"; do
-        wget "https://raw.githubusercontent.com/Tunnelblick/Tunnelblick/master/third_party/sources/openvpn/openvpn-$OPENVPN_VER/patches/$patch"
-        git apply "$patch"
-    done
-
-    ./configure --enable-static=yes --enable-shared  --enable-systemd=yes --disable-lzo --disable-debug --disable-plugin-auth-pam --disable-dependency-tracking
-    make -j$(nproc)
-    make install
-
-    cd /root
-    rm -rf /opt/openvpn_install/
-    apt-get purge -y $LIBS_TEMP
-    apt-get autoremove && apt-get clean
-
-EOT
-
 COPY rootfs /
 
 RUN <<-"EOF" bash -ex
-    systemctl enable \
-        antizapret-update.service \
-        antizapret-update.timer \
-        dnsmap \
-        kresd@1 \
-        openvpn-server@antizapret \
-        openvpn-server@antizapret-tcp \
-        systemd-networkd
+    cp -rv /etc/openvpn /etc/openvpn-default
 
     patch antizapret/parse.sh patches/parse.patch
+
     sed -i "/\b\(googleusercontent\|cloudfront\|deviantart\)\b/d" /root/antizapret/config/exclude-regexp-dist.awk
     for list in antizapret/config/*-dist.txt; do
         sed -E '/^(#.*)?[[:space:]]*$/d' $list | sort | uniq | sponge $list
     done
-    for list in antizapret/config/*-custom.txt; do rm -f $list; done
+
+    for list in antizapret/config/*-custom.txt; do
+        rm -f $list
+    done
+    rm antizapret/{*.md,generate-pac.sh}
 
     ln -sf /root/antizapret/doall.sh /usr/bin/doall
     ln -sf /root/antizapret/dnsmap.py /usr/bin/dnsmap
 
-    rm -frv /tmp/*
+    mkdir -pv /var/cache/knot-resolver
+    touch /var/cache/knot-resolver/{data,lock}.mdb
+    chown knot-resolver:knot-resolver -R /var/cache/knot-resolver
 EOF
 
-COPY rootfs/etc/openvpn /etc/openvpn-default
+COPY --from=openvpn /dist /
 
-RUN <<-"EOF" bash -ex
-    (STAGE_1=true STAGE_2=true STAGE_3=false /root/antizapret/doall.sh)
-EOF
-
-ENTRYPOINT ["/init.sh"]
+ENTRYPOINT ["/init"]
